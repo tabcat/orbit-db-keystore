@@ -10,6 +10,15 @@ const { verifier } = require('./verifiers')
 const EC = require('elliptic').ec
 var ec = new EC('secp256k1')
 
+const genPrivKey = (pk) => new Promise((resolve, reject) => {
+  crypto.keys.supportedKeys.secp256k1.unmarshalSecp256k1PrivateKey(pk, (err, key) => {
+    if (!err) {
+      resolve(key)
+    }
+    reject(err)
+  })
+})
+
 function createStore (path = './keystore') {
   if (fs && fs.mkdirSync) {
     fs.mkdirSync(path, { recursive: true })
@@ -84,7 +93,7 @@ class Keystore {
     }
 
     try {
-      await this._store.put(id, JSON.stringify(key))
+      await this._storeKey(id, JSON.stringify(key))
     } catch (e) {
       console.log(e)
     }
@@ -93,7 +102,35 @@ class Keystore {
     return keys
   }
 
-  async getKey (id) {
+  async _storeKey (id, serialized) {
+    await this._store.put(id, serialized)
+  }
+
+  async importKey (id, serializedKey, { overwrite } = {}) {
+    try {
+      if (await this.hasKey(id) && !overwrite) {
+        throw new Error('a key with that id already exists')
+      }
+      try {
+        genPrivKey(Buffer.from(JSON.parse(serializedKey).privateKey, 'hex'))
+      } catch (e) {
+        throw new Error('malformed keypair')
+      }
+      await this._storeKey(id, serializedKey)
+    } catch (e) {
+      throw new Error('failed to import key')
+    }
+  }
+
+  async exportKey (id) {
+    const storedKey = await this._getKeySerialized(id)
+    if (!storedKey) {
+      throw new Error('unable to find key to export')
+    }
+    return storedKey.toString()
+  }
+
+  async _getKeySerialized (id) {
     if (!id) {
       throw new Error('id needed to get a key')
     }
@@ -104,35 +141,35 @@ class Keystore {
       return Promise.resolve(null)
     }
 
-    const cachedKey = this._cache.get(id)
     let storedKey
     try {
-      storedKey = cachedKey || await this._store.get(id)
+      storedKey = await this._store.get(id)
     } catch (e) {
       // ignore ENOENT error
     }
 
+    return Buffer.from(storedKey).toString()
+  }
+
+  async getKey (id) {
+    if (!id) {
+      throw new Error('id needed to get a key')
+    }
+
+    const cachedKey = this._cache.get(id)
+    if (cachedKey) {
+      return genPrivKey(Buffer.from(cachedKey.privateKey, 'hex'))
+    }
+
+    const storedKey = await this._getKeySerialized(id)
     if (!storedKey) {
       return
     }
 
-    const deserializedKey = cachedKey || JSON.parse(storedKey)
-    if (!deserializedKey) {
-      return
-    }
-
+    const deserializedKey = JSON.parse(storedKey)
     if (!cachedKey) {
       this._cache.set(id, deserializedKey)
     }
-
-    const genPrivKey = (pk) => new Promise((resolve, reject) => {
-      crypto.keys.supportedKeys.secp256k1.unmarshalSecp256k1PrivateKey(pk, (err, key) => {
-        if (!err) {
-          resolve(key)
-        }
-        reject(err)
-      })
-    })
 
     return genPrivKey(Buffer.from(deserializedKey.privateKey, 'hex'))
   }

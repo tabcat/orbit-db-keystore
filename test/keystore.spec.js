@@ -17,6 +17,8 @@ let store
 const fixturePath = path.join('test', 'fixtures', 'signingKeys')
 const storagePath = path.join('test', 'signingKeys')
 
+const serializedKey = '{"publicKey":"0328401cd1b561040b87cd66563be722ba429b42d6abfeca9cb4c34e9845c86d2e","privateKey":"fe96f7b44e9a0accf13a42aee67bd0c1ba762949061d0afbbc72c9652dc789bf"}'
+
 before(async () => {
   await fs.copy(fixturePath, storagePath)
   store = await storage.createStore(`./keystore-test`)
@@ -179,6 +181,39 @@ describe('#hasKey()', async () => {
 
   afterEach(async () => {
     // await keystore.close()
+  })
+})
+
+describe('#importKey', async () => {
+  let keystore
+  const id = 'III'
+
+  before(async () => {
+    if (store.db.status !== 'open') {
+      await store.open()
+    }
+    keystore = new Keystore(store)
+  })
+
+  it('imports a serialized key', async () => {
+    await keystore.importKey(id, serializedKey, { overwrite: true })
+    assert.strictEqual((await keystore._store.get(id)).toString(), serializedKey)
+  })
+})
+
+describe('#exportKey', async () => {
+  let keystore
+  const id = 'III'
+
+  before(async () => {
+    if (store.db.status !== 'open') {
+      await store.open()
+    }
+    keystore = new Keystore(store)
+  })
+
+  it('exports a serialized key', async () => {
+    assert.strictEqual(await keystore.exportKey(id), serializedKey)
   })
 })
 
